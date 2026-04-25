@@ -15,8 +15,7 @@ public class ValueDictionaryTests {
     [Fact]
     public void ConstructorsTest() {
         new ValueDictionary<string, int>().ToList().ShouldBe([], ignoreOrder: true);
-        new ValueDictionary<string, int>(4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
-        ValueDictionary<char, long>.FromBuffer(stackalloc KeyValuePair<char, long>[3], stackalloc int[3]).Capacity.ShouldBe(3);
+        new ValueDictionary<string, int>(capacity: 4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
         new ValueDictionary<char, long>([new('a', 5L), new('X', 3L)]).ToList().ShouldBe([new('a', 5L), new('X', 3L)], ignoreOrder: true);
     }
     [Fact]
@@ -29,7 +28,7 @@ public class ValueDictionaryTests {
     }
     [Fact]
     public void AddTest() {
-        using ValueDictionary<int, bool> dictionary = ValueDictionary<int, bool>.FromBuffer(stackalloc KeyValuePair<int, bool>[64], stackalloc int[64]);
+        using ValueDictionary<int, bool> dictionary = new(capacity: 64);
         for (int i = 0; i < 100; i++) {
             dictionary.Add(i, i % 2 == 0);
         }

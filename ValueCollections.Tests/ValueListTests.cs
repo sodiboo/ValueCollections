@@ -11,8 +11,7 @@ public class ValueListTests {
     [Fact]
     public void ConstructorsTest() {
         new ValueList<string>().ToList().ShouldBe([]);
-        new ValueList<string>(4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
-        ValueList<char>.FromBuffer(stackalloc char[3]).Capacity.ShouldBe(3);
+        new ValueList<string>(capacity: 4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
         new ValueList<char>("abc").ToList().ShouldBe(['a', 'b', 'c']);
     }
     [Fact]
@@ -49,7 +48,7 @@ public class ValueListTests {
     }
     [Fact]
     public void AddTest() {
-        using ValueList<int> list = ValueList<int>.FromBuffer(stackalloc int[64]);
+        using ValueList<int> list = new(capacity: 64);
         for (int i = 0; i < 100; i++) {
             list.Add(i);
         }

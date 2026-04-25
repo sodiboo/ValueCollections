@@ -96,7 +96,7 @@ partial struct ValueList<T> {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly ValueList<T> Reverse() {
         ValueList<T> result = new(this);
-        result.AsSpan().Reverse();
+        result.Span.Reverse();
         return result;
     }
 
@@ -236,7 +236,7 @@ partial struct ValueList<T> {
     public readonly ValueList<T> OrderDescending() {
         ValueList<T> result = new(this);
         result.Sort();
-        result.AsSpan().Reverse();
+        result.Span.Reverse();
         return result;
     }
 
@@ -247,7 +247,7 @@ partial struct ValueList<T> {
     public readonly ValueList<T> OrderDescending<TComparer>(TComparer comparer) where TComparer : IComparer<T> {
         ValueList<T> result = new(this);
         result.Sort(comparer);
-        result.AsSpan().Reverse();
+        result.Span.Reverse();
         return result;
     }
 
@@ -278,7 +278,7 @@ partial struct ValueList<T> {
     public readonly ValueList<T> OrderByDescending<TKey>(Func<T, TKey> keySelector) {
         ValueList<T> result = new(this);
         result.Sort(new KeySelectorComparer<TKey, Comparer<TKey>>(keySelector, Comparer<TKey>.Default));
-        result.AsSpan().Reverse();
+        result.Span.Reverse();
         return result;
     }
 
@@ -289,7 +289,7 @@ partial struct ValueList<T> {
     public readonly ValueList<T> OrderByDescending<TKey, TComparer>(Func<T, TKey> keySelector, TComparer comparer) where TComparer : IComparer<TKey> {
         ValueList<T> result = new(this);
         result.Sort(new KeySelectorComparer<TKey, TComparer>(keySelector, comparer));
-        result.AsSpan().Reverse();
+        result.Span.Reverse();
         return result;
     }
 

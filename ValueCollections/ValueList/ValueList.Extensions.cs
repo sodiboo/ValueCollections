@@ -44,7 +44,7 @@ public static class ValueListExtensions {
 #if NET9_0_OR_GREATER
     [OverloadResolutionPriority(-2)]
 #endif
-    public static ValueList<T> ToValueList<T>(this scoped ValueList<T> valueList) {
+    public static ValueList<T> ToValueList<T>(this ValueList<T> valueList) {
         return new ValueList<T>(valueList);
     }
 
@@ -55,7 +55,7 @@ public static class ValueListExtensions {
 #if NET9_0_OR_GREATER
     [OverloadResolutionPriority(-3)]
 #endif
-    public static ValueList<T> ToValueList<T>(this scoped ValueHashSet<T> valueHashSet) {
+    public static ValueList<T> ToValueList<T>(this ValueHashSet<T> valueHashSet) {
         return new ValueList<T>(valueHashSet);
     }
 
@@ -66,7 +66,7 @@ public static class ValueListExtensions {
 #if NET9_0_OR_GREATER
     [OverloadResolutionPriority(-4)]
 #endif
-    public static ValueList<KeyValuePair<TKey, TValue>> ToValueList<TKey, TValue>(this scoped ValueDictionary<TKey, TValue> valueDictionary) {
+    public static ValueList<KeyValuePair<TKey, TValue>> ToValueList<TKey, TValue>(this ValueDictionary<TKey, TValue> valueDictionary) {
         ValueList<KeyValuePair<TKey, TValue>> valueList = new();
         valueList.AddRange(valueDictionary.AsSpan());
         return valueList;
@@ -104,7 +104,7 @@ public static class ValueListExtensions {
     /// Copies the contents of <paramref name="valueList"/> to a new <see cref="Array"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static T[] ToArray<T>(this scoped ValueList<T> valueList) {
+    public static T[] ToArray<T>(this ValueList<T> valueList) {
         return valueList.AsSpan().ToArray();
     }
 
@@ -112,7 +112,7 @@ public static class ValueListExtensions {
     /// Copies the contents of <paramref name="valueList"/> to a new <see cref="List{T}"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static List<T> ToList<T>(this scoped ValueList<T> valueList) {
+    public static List<T> ToList<T>(this ValueList<T> valueList) {
         List<T> list = new(valueList.Count);
         list.AddRange(valueList.AsSpan());
         return list;
@@ -122,7 +122,7 @@ public static class ValueListExtensions {
     /// Copies the contents of <paramref name="valueList"/> to a new <see cref="HashSet{T}"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static HashSet<T> ToHashSet<T>(this scoped ValueList<T> valueList) {
+    public static HashSet<T> ToHashSet<T>(this ValueList<T> valueList) {
         HashSet<T> hashSet = new(valueList.Count);
         foreach (T element in valueList) {
             hashSet.Add(element);
@@ -134,7 +134,7 @@ public static class ValueListExtensions {
     /// Copies the contents of <paramref name="valueList"/> to a new <see cref="Dictionary{TKey, TValue}"/> using <paramref name="keySelector"/> and <paramref name="valueSelector"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Dictionary<TKey, TValue> ToDictionary<TSource, TKey, TValue>(this scoped ValueList<TSource> valueList, Func<TSource, TKey> keySelector, Func<TSource, TValue> valueSelector) where TKey : notnull {
+    public static Dictionary<TKey, TValue> ToDictionary<TSource, TKey, TValue>(this ValueList<TSource> valueList, Func<TSource, TKey> keySelector, Func<TSource, TValue> valueSelector) where TKey : notnull {
         Dictionary<TKey, TValue> dictionary = new(valueList.Count);
         foreach (TSource element in valueList) {
             TKey key = keySelector(element);
@@ -148,7 +148,7 @@ public static class ValueListExtensions {
     /// Copies the contents of <paramref name="valueList"/> to a new <see cref="Dictionary{TKey, TValue}"/> using <paramref name="keyValuePairSelector"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Dictionary<TKey, TValue> ToDictionary<TSource, TKey, TValue>(this scoped ValueList<TSource> valueList, Func<TSource, KeyValuePair<TKey, TValue>> keyValuePairSelector) where TKey : notnull {
+    public static Dictionary<TKey, TValue> ToDictionary<TSource, TKey, TValue>(this ValueList<TSource> valueList, Func<TSource, KeyValuePair<TKey, TValue>> keyValuePairSelector) where TKey : notnull {
         Dictionary<TKey, TValue> dictionary = new(valueList.Count);
         foreach (TSource element in valueList) {
             KeyValuePair<TKey, TValue> keyValuePair = keyValuePairSelector(element);

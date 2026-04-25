@@ -44,7 +44,7 @@ public static class ValueDictionaryExtensions {
 #if NET9_0_OR_GREATER
     [OverloadResolutionPriority(-2)]
 #endif
-    public static ValueDictionary<TKey, TValue> ToValueDictionary<TKey, TValue>(this scoped ValueDictionary<TKey, TValue> valueDictionary) {
+    public static ValueDictionary<TKey, TValue> ToValueDictionary<TKey, TValue>(this ValueDictionary<TKey, TValue> valueDictionary) {
         return new ValueDictionary<TKey, TValue>(valueDictionary);
     }
 
@@ -55,7 +55,7 @@ public static class ValueDictionaryExtensions {
 #if NET9_0_OR_GREATER
     [OverloadResolutionPriority(-3)]
 #endif
-    public static ValueDictionary<TKey, TValue> ToValueDictionary<TKey, TValue>(this scoped ValueList<KeyValuePair<TKey, TValue>> valueList) {
+    public static ValueDictionary<TKey, TValue> ToValueDictionary<TKey, TValue>(this ValueList<KeyValuePair<TKey, TValue>> valueList) {
         return new ValueDictionary<TKey, TValue>(valueList);
     }
 
@@ -91,7 +91,7 @@ public static class ValueDictionaryExtensions {
     /// Copies the contents of <paramref name="valueDictionary"/> to a new <see cref="Array"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static KeyValuePair<TKey, TValue>[] ToArray<TKey, TValue>(this scoped ValueDictionary<TKey, TValue> valueDictionary) {
+    public static KeyValuePair<TKey, TValue>[] ToArray<TKey, TValue>(this ValueDictionary<TKey, TValue> valueDictionary) {
         return valueDictionary.AsSpan().ToArray();
     }
 
@@ -99,7 +99,7 @@ public static class ValueDictionaryExtensions {
     /// Copies the contents of <paramref name="valueDictionary"/> to a new <see cref="List{T}"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static List<KeyValuePair<TKey, TValue>> ToList<TKey, TValue>(this scoped ValueDictionary<TKey, TValue> valueDictionary) {
+    public static List<KeyValuePair<TKey, TValue>> ToList<TKey, TValue>(this ValueDictionary<TKey, TValue> valueDictionary) {
         List<KeyValuePair<TKey, TValue>> list = new(valueDictionary.Count);
         list.AddRange(valueDictionary.AsSpan());
         return list;
@@ -109,7 +109,7 @@ public static class ValueDictionaryExtensions {
     /// Copies the contents of <paramref name="valueDictionary"/> to a new <see cref="Dictionary{TKey, TValue}"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Dictionary<TKey, TValue> ToDictionary<TKey, TValue>(this scoped ValueDictionary<TKey, TValue> valueDictionary) where TKey : notnull {
+    public static Dictionary<TKey, TValue> ToDictionary<TKey, TValue>(this ValueDictionary<TKey, TValue> valueDictionary) where TKey : notnull {
         Dictionary<TKey, TValue> dictionary = new(valueDictionary.Count);
         foreach (KeyValuePair<TKey, TValue> entry in valueDictionary) {
             dictionary[entry.Key] = entry.Value;
@@ -121,7 +121,7 @@ public static class ValueDictionaryExtensions {
     /// Copies the contents of <paramref name="valueDictionary"/> to a new <see cref="Dictionary{TKey, TValue}"/> using <paramref name="keySelector"/> and <paramref name="valueSelector"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Dictionary<TKey, TValue> ToDictionary<TSourceKey, TSourceValue, TKey, TValue>(this scoped ValueDictionary<TSourceKey, TSourceValue> valueDictionary, Func<KeyValuePair<TSourceKey, TSourceValue>, TKey> keySelector, Func<KeyValuePair<TSourceKey, TSourceValue>, TValue> valueSelector) where TKey : notnull {
+    public static Dictionary<TKey, TValue> ToDictionary<TSourceKey, TSourceValue, TKey, TValue>(this ValueDictionary<TSourceKey, TSourceValue> valueDictionary, Func<KeyValuePair<TSourceKey, TSourceValue>, TKey> keySelector, Func<KeyValuePair<TSourceKey, TSourceValue>, TValue> valueSelector) where TKey : notnull {
         Dictionary<TKey, TValue> dictionary = new(valueDictionary.Count);
         foreach (KeyValuePair<TSourceKey, TSourceValue> entry in valueDictionary) {
             TKey key = keySelector(entry);
@@ -135,7 +135,7 @@ public static class ValueDictionaryExtensions {
     /// Copies the contents of <paramref name="valueDictionary"/> to a new <see cref="Dictionary{TKey, TValue}"/> using <paramref name="keyValuePairSelector"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Dictionary<TKey, TValue> ToDictionary<TSourceKey, TSourceValue, TKey, TValue>(this scoped ValueDictionary<TSourceKey, TSourceValue> valueDictionary, Func<KeyValuePair<TSourceKey, TSourceValue>, KeyValuePair<TKey, TValue>> keyValuePairSelector) where TKey : notnull {
+    public static Dictionary<TKey, TValue> ToDictionary<TSourceKey, TSourceValue, TKey, TValue>(this ValueDictionary<TSourceKey, TSourceValue> valueDictionary, Func<KeyValuePair<TSourceKey, TSourceValue>, KeyValuePair<TKey, TValue>> keyValuePairSelector) where TKey : notnull {
         Dictionary<TKey, TValue> dictionary = new(valueDictionary.Count);
         foreach (KeyValuePair<TSourceKey, TSourceValue> entry in valueDictionary) {
             KeyValuePair<TKey, TValue> keyValuePair = keyValuePairSelector(entry);

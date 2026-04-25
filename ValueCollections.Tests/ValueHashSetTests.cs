@@ -11,8 +11,7 @@ public class ValueHashSetTests {
     [Fact]
     public void ConstructorsTest() {
         new ValueHashSet<string>().ToList().ShouldBe([], ignoreOrder: true);
-        new ValueHashSet<string>(4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
-        ValueHashSet<char>.FromBuffer(stackalloc char[3], stackalloc int[3]).Capacity.ShouldBe(3);
+        new ValueHashSet<string>(capacity: 4).Capacity.ShouldBeGreaterThanOrEqualTo(4);
         new ValueHashSet<char>("abc").ToList().ShouldBe(['a', 'b', 'c'], ignoreOrder: true);
     }
     [Fact]
@@ -25,7 +24,7 @@ public class ValueHashSetTests {
     }
     [Fact]
     public void AddTest() {
-        using ValueHashSet<int> hashSet = ValueHashSet<int>.FromBuffer(stackalloc int[64], stackalloc int[64]);
+        using ValueHashSet<int> hashSet = new(capacity: 64);
         for (int i = 0; i < 100; i++) {
             hashSet.Add(i);
         }

@@ -1,6 +1,7 @@
-using System.Collections;
 using System.Buffers;
+using System.Collections;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace ValueCollections;
 
@@ -10,17 +11,82 @@ namespace ValueCollections;
 /// <remarks>
 /// You should dispose it after use to ensure the rented buffer is returned to the array pool.
 /// </remarks>
-public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T> {
-    private Span<T> Buffer;
-    private int BufferPosition;
-    private T[]? RentedBuffer;
+public readonly partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T> {
+    private readonly BackingBuffer<InnerValueList> BackingBuffer = new();
 
     /// <summary>
     /// Constructs a value list with a default capacity of 0.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueList() {
+    public ValueList() { }
+
+    /// <summary>
+    /// Disposes the instance and returns the rented buffer to the array pool if needed.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Dispose() => BackingBuffer.Dispose();
+
+    private ref InnerValueList Inner {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => ref BackingBuffer.Data;
     }
+    private struct InnerValueList : IDisposable {
+
+        private T[]? RentedBuffer;
+        public int PopulatedElements { get; set; }
+
+        public readonly Span<T> Buffer => RentedBuffer is null ? [] : RentedBuffer.AsSpan();
+
+        public int Capacity {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            readonly get => RentedBuffer?.Length ?? 0;
+            set {
+                if (value == Capacity) return;
+
+                var PrevBuffer = Interlocked.Exchange(ref RentedBuffer, value == 0 ? null : ArrayPool<T>.Shared.Rent(value));
+
+                if (PrevBuffer is not null && RentedBuffer is not null) {
+                    var src = PrevBuffer.AsSpan();
+                    var dst = RentedBuffer.AsSpan();
+                    var len = int.Min(int.Min(src.Length, dst.Length), PopulatedElements);
+                    src[..len].CopyTo(dst[..len]);
+                }
+
+                if (PrevBuffer is not null) {
+                    ArrayPool<T>.Shared.Return(PrevBuffer);
+                }
+            }
+        }
+
+        public void Dispose() {
+            Buffer.Clear();
+            Capacity = 0;
+            this = default;
+        }
+    }
+
+    private Span<T> Buffer => Inner.Buffer;
+
+    /// <summary>
+    /// Returns the current number of elements in the list.
+    /// </summary>
+    public int Count {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Inner.PopulatedElements;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set => Inner.PopulatedElements = value;
+    }
+
+    /// <summary>
+    /// Returns the current maximum capacity before the span must be resized.
+    /// </summary>
+    public int Capacity {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Inner.Capacity;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set => Inner.Capacity = value;
+    }
+
     /// <summary>
     /// Constructs a value list with the given capacity.
     /// </summary>
@@ -62,8 +128,8 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     [OverloadResolutionPriority(-2)]
 #endif
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueList(scoped ValueList<T> initialElements) {
-        AddRange(initialElements.AsSpan());
+    public ValueList(ValueList<T> initialElements) {
+        AddRange(initialElements.Span);
     }
     /// <summary>
     /// Constructs a value list with the given elements.
@@ -72,75 +138,8 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     [OverloadResolutionPriority(-3)]
 #endif
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueList(scoped ValueHashSet<T> initialElements) {
+    public ValueList(ValueHashSet<T> initialElements) {
         AddRange(initialElements.AsSpan());
-    }
-
-    /// <summary>
-    /// Constructs a value list from the given buffer.
-    /// </summary>
-    /// <remarks>
-    /// The elements in the buffer are ignored. This is useful if you want to use the <see langword="stackalloc"/> keyword.
-    /// </remarks>
-    public static ValueList<T> FromBuffer(Span<T> buffer) {
-        return new ValueList<T>() {
-            Buffer = buffer,
-        };
-    }
-
-    /// <summary>
-    /// Disposes the instance and returns the rented buffer to the array pool if needed.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Dispose() {
-        if (RentedBuffer is not null) {
-            ArrayPool<T>.Shared.Return(RentedBuffer);
-        }
-        this = default;
-    }
-
-    /// <summary>
-    /// Returns the current number of elements in the list.
-    /// </summary>
-    public readonly int Count {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => BufferPosition;
-    }
-
-    /// <summary>
-    /// Returns the current maximum capacity before the span must be resized.
-    /// </summary>
-    public int Capacity {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        readonly get => Buffer.Length;
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        set => ResizeBuffer(value);
-    }
-
-    /// <summary>
-    /// Resizes the buffer to the given capacity.
-    /// </summary>
-    private void ResizeBuffer(int capacity, bool allowExtra = true) {
-        if (capacity == Capacity) {
-            return;
-        }
-
-        T[] rentedBuffer = allowExtra
-            ? ArrayPool<T>.Shared.Rent(capacity)
-            : new T[capacity];
-
-        if (BufferPosition > 0) {
-            Buffer[..BufferPosition].CopyTo(rentedBuffer);
-        }
-
-        if (RentedBuffer is not null) {
-            ArrayPool<T>.Shared.Return(RentedBuffer);
-        }
-
-        Buffer = rentedBuffer;
-        if (allowExtra) {
-            RentedBuffer = rentedBuffer;
-        }
     }
 
     /// <inheritdoc/>
@@ -149,20 +148,35 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
         get => false;
     }
 
+    private Span<T> Span {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Buffer[..Count];
+    }
+
+    /// <summary>
+    /// Gets a span over the elements in the list.
+    /// </summary>
+    /// <remarks>
+    /// Do not change the capacity of the list while the span is in use, because the span will continue pointing to the old buffer.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Span<T> AsSpan() => Span;
+
     /// <summary>
     /// Returns the element at the given index.
     /// </summary>
     /// <exception cref="IndexOutOfRangeException"/>
     public readonly ref T this[int index] {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get {
-            if (index < 0 || index >= BufferPosition) {
-                throw new IndexOutOfRangeException("The index is outside the bounds of the value list.");
-            }
-
-            return ref Buffer[index];
-        }
+        get => ref Span[index];
     }
+
+    /// <summary>
+    /// Returns the elements at the given range.
+    /// </summary>
+    /// <exception cref="IndexOutOfRangeException"/>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Span<T> Slice(int start, int end) => Span[start..end];
 
     /// <inheritdoc/>
     T IList<T>.this[int index] {
@@ -179,22 +193,13 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     }
 
     /// <summary>
-    /// Gets a span over the elements in the list.
-    /// </summary>
-    /// <remarks>
-    /// Do not change the capacity of the list while the span is in use, because the span will continue pointing to the old buffer.
-    /// </remarks>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly Span<T> AsSpan() => Buffer[..BufferPosition];
-
-    /// <summary>
     /// Adds an element to the list.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(T value) {
-        EnsureCapacity(BufferPosition + 1);
-        Buffer[BufferPosition] = value;
-        BufferPosition++;
+        EnsureCapacity(Count + 1);
+        Buffer[Count] = value;
+        Count++;
     }
 
     /// <summary>
@@ -202,9 +207,9 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AddRange(scoped ReadOnlySpan<T> values) {
-        EnsureCapacity(BufferPosition + values.Length);
-        values.CopyTo(Buffer[BufferPosition..]);
-        BufferPosition += values.Length;
+        EnsureCapacity(Count + values.Length);
+        values.CopyTo(Buffer[Count..]);
+        Count += values.Length;
     }
 
     /// <summary>
@@ -227,10 +232,9 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
 #endif
     public void AddRange(IEnumerable<T> values) {
         if (values.TryGetNonEnumeratedCount(out int count)) {
-            EnsureCapacity(BufferPosition + count);
+            EnsureCapacity(Count + count);
             foreach (T value in values) {
-                Buffer[BufferPosition] = value;
-                BufferPosition++;
+                this[Count++] = value;
             }
         }
         else {
@@ -245,40 +249,22 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     /// This is useful when adding a predetermined number of items to the list.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void EnsureCapacity(int newCapacity) {
-        if (Capacity >= newCapacity) {
-            return;
-        }
-        ResizeBuffer(FindSmallestPowerOf2Above(newCapacity));
-    }
-
-    /// <summary>
-    /// Returns the smallest power of 2 which is greater than or equal to <paramref name="minimum"/>.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int FindSmallestPowerOf2Above(int minimum) {
-        return 1 << (int)Math.Ceiling(Math.Log2(minimum));
-    }
+    public void EnsureCapacity(int newCapacity) => Capacity = int.Max(Capacity, 1 << (int.Log2(newCapacity) + 1));
 
     /// <summary>
     /// Ensures the list's capacity is equal to its count, renting a smaller buffer if not.<br/>
     /// This is useful for reducing memory overhead when it is known that no more elements will be added to the list.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void TrimExcess() {
-        if (Count >= Capacity) {
-            return;
-        }
-        ResizeBuffer(Count, allowExtra: false);
-    }
+    public void TrimExcess() => Capacity = Count;
 
     /// <summary>
     /// Returns the index of <paramref name="value"/> or -1 if not found.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly int IndexOf(T value) {
+    public int IndexOf(T value) {
         EqualityComparer<T> comparer = EqualityComparer<T>.Default;
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (comparer.Equals(Buffer[index], value)) {
                 return index;
             }
@@ -292,7 +278,7 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly int LastIndexOf(T value) {
         EqualityComparer<T> comparer = EqualityComparer<T>.Default;
-        for (int index = BufferPosition - 1; index >= 0; index--) {
+        for (int index = Count - 1; index >= 0; index--) {
             if (comparer.Equals(Buffer[index], value)) {
                 return index;
             }
@@ -314,12 +300,12 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Insert(int index, T value) {
         ArgumentOutOfRangeException.ThrowIfLessThan(index, 0);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, BufferPosition);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, Count);
 
-        EnsureCapacity(BufferPosition + 1);
-        Buffer[index..BufferPosition].CopyTo(Buffer[(index + 1)..]);
+        EnsureCapacity(Count + 1);
+        Buffer[index..Count].CopyTo(Buffer[(index + 1)..]);
         Buffer[index] = value;
-        BufferPosition++;
+        Count++;
     }
 
     /// <summary>
@@ -328,12 +314,12 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void RemoveAt(int index) {
         ArgumentOutOfRangeException.ThrowIfLessThan(index, 0);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, BufferPosition);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Count);
 
         Buffer[(index + 1)..].CopyTo(Buffer[index..]);
-        
-        BufferPosition--;
-        Buffer[BufferPosition] = default!;
+
+        Count--;
+        Buffer[Count] = default!;
     }
 
     /// <summary>
@@ -356,7 +342,7 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     public int RemoveWhere(Func<T, bool> predicate) {
         int counter = 0;
         int index = 0;
-        while (index < BufferPosition) {
+        while (index < Count) {
             if (predicate(Buffer[index])) {
                 RemoveAt(index);
                 counter++;
@@ -373,24 +359,24 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear() {
-        Buffer[..BufferPosition].Clear();
-        BufferPosition = 0;
+        Span.Clear();
+        Count = 0;
     }
 
     /// <summary>
     /// Sorts the elements using the default comparer.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly void Sort() {
-        Buffer[..BufferPosition].Sort();
+    public void Sort() {
+        Span.Sort();
     }
 
     /// <summary>
     /// Sorts the elements using <paramref name="comparer"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly void Sort<TComparer>(TComparer comparer) where TComparer : IComparer<T> {
-        Buffer[..BufferPosition].Sort(comparer);
+    public void Sort<TComparer>(TComparer comparer) where TComparer : IComparer<T> {
+        Span.Sort(comparer);
     }
 
     /// <summary>
@@ -398,7 +384,7 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly void CopyTo(scoped Span<T> destination) {
-        Buffer[..BufferPosition].CopyTo(destination);
+        Span.CopyTo(destination);
     }
 
     /// <summary>
@@ -413,26 +399,18 @@ public ref partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyList<T>
     /// Returns an enumerator that iterates over the elements of the list.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly Enumerator GetEnumerator() {
-        return new Enumerator(this);
-    }
+    public readonly Enumerator GetEnumerator() => new(this);
 
-    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator() {
-        return ((IEnumerable<T>)this.ToArray()).GetEnumerator();
-    }
+    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
 
-    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator IEnumerable.GetEnumerator() {
-        return this.ToArray().GetEnumerator();
-    }
+    readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
     /// Enumerates the elements of a <see cref="ValueList{T}"/>.
     /// </summary>
-    public ref struct Enumerator : IEnumerator<T> {
+    public struct Enumerator : IEnumerator<T> {
         private readonly ValueList<T> List;
         private int Index;
 

@@ -1,5 +1,5 @@
-using System.Collections;
 using System.Buffers;
+using System.Collections;
 using System.Runtime.CompilerServices;
 
 namespace ValueCollections;
@@ -10,25 +10,136 @@ namespace ValueCollections;
 /// <remarks>
 /// You should dispose it after use to ensure the rented buffer is returned to the array pool.
 /// </remarks>
-public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T> {
-    /// <summary>
-    /// A comparer used to differentiate the keys of the hash set.
-    /// </summary>
-    public IEqualityComparer<T> Comparer { get; } = EqualityComparer<T>.Default;
-
-    private Span<T> Buffer;
-    private int BufferPosition;
-    private T[]? RentedBuffer;
-    private Span<int> HashCodes;
-    private int[]? RentedHashCodes;
+public readonly partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T> {
+    private readonly BackingBuffer<InnerValueHashSet> BackingBuffer = new();
 
     /// <summary>
     /// Constructs a value hash set with a default capacity of 0.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueHashSet() {
+    public ValueHashSet() { }
 
+    /// <summary>
+    /// Disposes the instance and returns the rented buffer to the array pool if needed.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Dispose() => BackingBuffer.Dispose();
+
+    private ref InnerValueHashSet Inner {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => ref BackingBuffer.Data;
     }
+    private struct InnerValueHashSet : IDisposable {
+
+        public IEqualityComparer<T> Comparer { readonly get => field ?? EqualityComparer<T>.Default; set; }
+        private T[]? RentedBuffer;
+        public int PopulatedElements { get; set; }
+        private int[]? RentedHashCodes;
+
+        public readonly Span<T> Buffer => RentedBuffer is null ? [] : RentedBuffer.AsSpan();
+        public readonly Span<int> HashCodes => RentedHashCodes is null ? [] : RentedHashCodes.AsSpan();
+
+        public int Capacity {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            readonly get => RentedBuffer?.Length ?? 0;
+            set {
+                if (value == Capacity) {
+                    return;
+                }
+
+                {
+                    var PrevBuffer = Interlocked.Exchange(ref RentedBuffer, value == 0 ? null : ArrayPool<T>.Shared.Rent(value));
+
+                    if (PrevBuffer is not null && RentedBuffer is not null) {
+                        var src = PrevBuffer.AsSpan();
+                        var dst = RentedBuffer.AsSpan();
+                        var len = int.Min(int.Min(src.Length, dst.Length), PopulatedElements);
+                        src[..len].CopyTo(dst[..len]);
+                    }
+
+                    if (PrevBuffer is not null) {
+                        ArrayPool<T>.Shared.Return(PrevBuffer);
+                    }
+                }
+
+                {
+                    var PrevHashCodes = Interlocked.Exchange(ref RentedHashCodes, value == 0 ? null : ArrayPool<int>.Shared.Rent(value));
+
+                    if (PrevHashCodes is not null && RentedHashCodes is not null) {
+                        var src = PrevHashCodes.AsSpan();
+                        var dst = RentedHashCodes.AsSpan();
+                        var len = int.Min(int.Min(src.Length, dst.Length), PopulatedElements);
+                        src[..len].CopyTo(dst[..len]);
+                    }
+
+                    if (PrevHashCodes is not null) {
+                        ArrayPool<int>.Shared.Return(PrevHashCodes);
+                    }
+                }
+
+            }
+
+        }
+
+        public void Dispose() {
+            Buffer.Clear();
+            Capacity = 0;
+            this = default;
+        }
+    }
+
+    private Span<T> Buffer => Inner.Buffer;
+    private Span<int> HashCodesBuffer => Inner.HashCodes;
+
+    /// <summary>
+    /// Returns the current number of elements in the hash set.
+    /// </summary>
+    public int Count {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Inner.PopulatedElements;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set => Inner.PopulatedElements = value;
+    }
+
+    /// <summary>
+    /// Returns the current maximum capacity before the span must be resized.
+    /// </summary>
+    public int Capacity {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Inner.Capacity;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private set => Inner.Capacity = value;
+    }
+
+    /// <summary>
+    /// A comparer used to differentiate the keys of the hash set.
+    /// </summary>
+    public IEqualityComparer<T> Comparer {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Inner.Comparer;
+    }
+
+    /// <inheritdoc/>
+    readonly bool ICollection<T>.IsReadOnly {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => false;
+    }
+
+    private Span<T> Span {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Buffer[..Count];
+    }
+
+    /// <summary>
+    /// Gets a span over the elements in the hash set.
+    /// </summary>
+    /// <remarks>
+    /// Do not change the capacity of the hash set while the span is in use, because the span will continue pointing to the old buffer.<br/>
+    /// The span is read-only to ensure the elements are synchronized with the hash codes.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlySpan<T> AsSpan() => Span;
+
     /// <summary>
     /// Constructs a value hash set with the given capacity.
     /// </summary>
@@ -70,7 +181,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     [OverloadResolutionPriority(-2)]
 #endif
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueHashSet(scoped ValueList<T> initialElements) {
+    public ValueHashSet(ValueList<T> initialElements) {
         AddRange(initialElements.AsSpan());
     }
     /// <summary>
@@ -80,112 +191,9 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     [OverloadResolutionPriority(-3)]
 #endif
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueHashSet(scoped ValueHashSet<T> initialElements) {
-        AddRange(initialElements.AsSpan());
+    public ValueHashSet(ValueHashSet<T> initialElements) {
+        AddRange(initialElements.Span);
     }
-
-    /// <summary>
-    /// Constructs a value hash set from the given buffer.
-    /// </summary>
-    /// <remarks>
-    /// The elements in the buffer are ignored. This is useful if you want to use the <see langword="stackalloc"/> keyword.
-    /// </remarks>
-    /// <exception cref="ArgumentException"/>
-    public static ValueHashSet<T> FromBuffer(Span<T> buffer, Span<int> hashCodesBuffer) {
-        if (buffer.Length != hashCodesBuffer.Length) {
-            throw new ArgumentException($"{nameof(buffer)}.Length must equal {nameof(hashCodesBuffer)}.Length");
-        }
-
-        return new ValueHashSet<T>() {
-            Buffer = buffer,
-            HashCodes = hashCodesBuffer,
-        };
-    }
-
-    /// <summary>
-    /// Disposes the instance and returns the rented buffers to the array pool if needed.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Dispose() {
-        if (RentedBuffer is not null) {
-            ArrayPool<T>.Shared.Return(RentedBuffer);
-        }
-        if (RentedHashCodes is not null) {
-            ArrayPool<int>.Shared.Return(RentedHashCodes);
-        }
-        this = default;
-    }
-
-    /// <summary>
-    /// Returns the current number of elements in the hash set.
-    /// </summary>
-    public readonly int Count {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => BufferPosition;
-    }
-
-    /// <summary>
-    /// Returns the current maximum capacity before the span must be resized.
-    /// </summary>
-    public int Capacity {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        readonly get => Buffer.Length;
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        set => ResizeBuffer(value);
-    }
-
-    /// <summary>
-    /// Resizes the buffer to the given capacity.
-    /// </summary>
-    private void ResizeBuffer(int capacity, bool allowExtra = true) {
-        if (capacity == Capacity) {
-            return;
-        }
-
-        T[] rentedBuffer = allowExtra
-            ? ArrayPool<T>.Shared.Rent(capacity)
-            : new T[capacity];
-        int[] rentedHashCodes = allowExtra
-            ? ArrayPool<int>.Shared.Rent(capacity)
-            : new int[capacity];
-
-        if (BufferPosition > 0) {
-            Buffer[..BufferPosition].CopyTo(rentedBuffer);
-            HashCodes[..BufferPosition].CopyTo(rentedHashCodes);
-        }
-
-        if (RentedBuffer is not null) {
-            ArrayPool<T>.Shared.Return(RentedBuffer);
-        }
-        if (RentedHashCodes is not null) {
-            ArrayPool<int>.Shared.Return(RentedHashCodes);
-        }
-
-        Buffer = rentedBuffer;
-        if (allowExtra) {
-            RentedBuffer = rentedBuffer;
-        }
-        HashCodes = rentedHashCodes;
-        if (allowExtra) {
-            RentedHashCodes = rentedHashCodes;
-        }
-    }
-
-    /// <inheritdoc/>
-    readonly bool ICollection<T>.IsReadOnly {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => false;
-    }
-
-    /// <summary>
-    /// Gets a span over the elements in the hash set.
-    /// </summary>
-    /// <remarks>
-    /// Do not change the capacity of the hash set while the span is in use, because the span will continue pointing to the old buffer.<br/>
-    /// The span is read-only to ensure the elements are synchronized with the hash codes.
-    /// </remarks>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly ReadOnlySpan<T> AsSpan() => Buffer[..BufferPosition];
 
     /// <summary>
     /// Adds an element to the hash set.
@@ -210,7 +218,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AddRange(scoped ReadOnlySpan<T> values) {
-        EnsureCapacity(BufferPosition + values.Length);
+        EnsureCapacity(Count + values.Length);
         foreach (T value in values) {
             Add(value);
         }
@@ -236,7 +244,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
 #endif
     public void AddRange(IEnumerable<T> values) {
         if (values.TryGetNonEnumeratedCount(out int count)) {
-            EnsureCapacity(BufferPosition + count);
+            EnsureCapacity(Count + count);
             foreach (T value in values) {
                 Add(value);
             }
@@ -253,32 +261,14 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// This is useful when adding a predetermined number of items to the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void EnsureCapacity(int newCapacity) {
-        if (Capacity >= newCapacity) {
-            return;
-        }
-        ResizeBuffer(FindSmallestPowerOf2Above(newCapacity));
-    }
-
-    /// <summary>
-    /// Returns the smallest power of 2 which is greater than or equal to <paramref name="minimum"/>.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int FindSmallestPowerOf2Above(int minimum) {
-        return 1 << (int)Math.Ceiling(Math.Log2(minimum));
-    }
+    public void EnsureCapacity(int newCapacity) => Capacity = int.Max(Capacity, 1 << (int.Log2(newCapacity) + 1));
 
     /// <summary>
     /// Ensures the hash set's capacity is equal to its count, renting a smaller buffer if not.<br/>
     /// This is useful for reducing memory overhead when it is known that no more elements will be added to the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void TrimExcess() {
-        if (Count >= Capacity) {
-            return;
-        }
-        ResizeBuffer(Count, allowExtra: false);
-    }
+    public void TrimExcess() => Capacity = Count;
 
     /// <summary>
     /// Returns whether <paramref name="value"/> is found in the hash set.
@@ -307,7 +297,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     public int RemoveWhere(Func<T, bool> predicate) {
         int counter = 0;
         int index = 0;
-        while (index < BufferPosition) {
+        while (index < Count) {
             if (predicate(Buffer[index])) {
                 RemoveAt(index);
                 counter++;
@@ -324,15 +314,15 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear() {
-        Buffer[..BufferPosition].Clear();
-        BufferPosition = 0;
+        Span.Clear();
+        Count = 0;
     }
 
     /// <summary>
     /// Removes the elements in <paramref name="other"/> from the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void ExceptWith(scoped ValueHashSet<T> other) {
+    public void ExceptWith(ValueHashSet<T> other) {
         foreach (T value in other) {
             Remove(value);
         }
@@ -350,8 +340,8 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Removes the elements not in <paramref name="other"/> from the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void IntersectWith(scoped ValueHashSet<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+    public void IntersectWith(ValueHashSet<T> other) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 RemoveAt(index);
                 index--;
@@ -362,7 +352,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// <inheritdoc cref="IntersectWith(ValueHashSet{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void IntersectWith(IEnumerable<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 RemoveAt(index);
                 index--;
@@ -374,7 +364,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether the hash set contains every element in <paramref name="other"/> but is not equal to <paramref name="other"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool IsProperSubsetOf(scoped ValueHashSet<T> other) {
+    public readonly bool IsProperSubsetOf(ValueHashSet<T> other) {
         return IsSubsetOf(other) && !SetEquals(other);
     }
 
@@ -388,7 +378,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether <paramref name="other"/> contains every element in the hash set but is not equal to <paramref name="other"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool IsProperSupersetOf(scoped ValueHashSet<T> other) {
+    public readonly bool IsProperSupersetOf(ValueHashSet<T> other) {
         return IsSupersetOf(other) && !SetEquals(other);
     }
 
@@ -402,8 +392,8 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether the hash set contains every element in <paramref name="other"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool IsSubsetOf(scoped ValueHashSet<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+    public readonly bool IsSubsetOf(ValueHashSet<T> other) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 return false;
             }
@@ -414,7 +404,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// <inheritdoc cref="IsSubsetOf(ValueHashSet{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly bool IsSubsetOf(IEnumerable<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 return false;
             }
@@ -426,7 +416,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether <paramref name="other"/> contains every element in the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool IsSupersetOf(scoped ValueHashSet<T> other) {
+    public readonly bool IsSupersetOf(ValueHashSet<T> other) {
         foreach (T value in other) {
             if (!Contains(value)) {
                 return false;
@@ -450,8 +440,8 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether the hash set and <paramref name="other"/> share at least one common element.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool Overlaps(scoped ValueHashSet<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+    public readonly bool Overlaps(ValueHashSet<T> other) {
+        for (int index = 0; index < Count; index++) {
             if (other.Contains(Buffer[index])) {
                 return true;
             }
@@ -467,7 +457,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// <inheritdoc cref="Overlaps(ValueHashSet{T})"/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly bool Overlaps(IEnumerable<T> other) {
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (other.Contains(Buffer[index])) {
                 return true;
             }
@@ -484,12 +474,12 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns whether the hash sets contain the same elements.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly bool SetEquals(scoped ValueHashSet<T> other) {
-        if (BufferPosition != other.BufferPosition) {
+    public readonly bool SetEquals(ValueHashSet<T> other) {
+        if (Count != other.Count) {
             return false;
         }
 
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 return false;
             }
@@ -506,17 +496,17 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly bool SetEquals(IEnumerable<T> other) {
         if (other is ICollection<T> otherCollectionOfT) {
-            if (BufferPosition != otherCollectionOfT.Count) {
+            if (Count != otherCollectionOfT.Count) {
                 return false;
             }
         }
         else if (other is ICollection otherCollection) {
-            if (BufferPosition != otherCollection.Count) {
+            if (Count != otherCollection.Count) {
                 return false;
             }
         }
 
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 return false;
             }
@@ -533,7 +523,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Replaces the elements with the elements that are in <paramref name="other"/> but not in this hash set and the elements that are in this hash set but not in <paramref name="other"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void SymmetricExceptWith(scoped ValueHashSet<T> other) {
+    public void SymmetricExceptWith(ValueHashSet<T> other) {
         using ValueHashSet<T> copy = new(this);
 
         Clear();
@@ -543,7 +533,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
                 Add(value);
             }
         }
-        for (int index = 0; index < copy.BufferPosition; index++) {
+        for (int index = 0; index < copy.Count; index++) {
             if (!other.Contains(copy.Buffer[index])) {
                 Add(copy.Buffer[index]);
             }
@@ -562,7 +552,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
                 Add(value);
             }
         }
-        for (int index = 0; index < BufferPosition; index++) {
+        for (int index = 0; index < Count; index++) {
             if (!other.Contains(Buffer[index])) {
                 Add(Buffer[index]);
             }
@@ -573,8 +563,8 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Adds the elements in <paramref name="other"/> to the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void UnionWith(scoped ValueHashSet<T> other) {
-        AddRange(other.AsSpan());
+    public void UnionWith(ValueHashSet<T> other) {
+        AddRange(other.Span);
     }
 
     /// <inheritdoc cref="UnionWith(ValueHashSet{T})"/>
@@ -588,7 +578,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly void CopyTo(scoped Span<T> destination) {
-        Buffer[..BufferPosition].CopyTo(destination);
+        Span.CopyTo(destination);
     }
 
     /// <summary>
@@ -603,21 +593,13 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     /// Returns an enumerator that iterates over the elements of the hash set.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly Enumerator GetEnumerator() {
-        return new Enumerator(this);
-    }
+    public readonly Enumerator GetEnumerator() => new(this);
 
-    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator() {
-        return ((IEnumerable<T>)this.ToArray()).GetEnumerator();
-    }
+    readonly IEnumerator<T> IEnumerable<T>.GetEnumerator() => GetEnumerator();
 
-    /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator IEnumerable.GetEnumerator() {
-        return this.ToArray().GetEnumerator();
-    }
+    readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     /// <summary>
     /// Calculates a hash code for <paramref name="value"/> using <see cref="Comparer"/>.
@@ -634,16 +616,16 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     private readonly bool TryFindIndex(T value, out int index) {
         int hashCode = GetHashCode(value);
 
-        int startIndex = HashCodes[..BufferPosition].BinarySearch(hashCode);
+        int startIndex = HashCodesBuffer[..Count].BinarySearch(hashCode);
         if (startIndex < 0) {
             startIndex = ~startIndex;
         }
-        while (startIndex > 0 && HashCodes[startIndex - 1] == hashCode) {
+        while (startIndex > 0 && HashCodesBuffer[startIndex - 1] == hashCode) {
             startIndex--;
         }
 
-        for (index = startIndex; index < BufferPosition; index++) {
-            int existingHashCode = HashCodes[index];
+        for (index = startIndex; index < Count; index++) {
+            int existingHashCode = HashCodesBuffer[index];
             if (existingHashCode != hashCode) {
                 break;
             }
@@ -662,16 +644,16 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void Insert(int index, T value) {
         ArgumentOutOfRangeException.ThrowIfLessThan(index, 0);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, BufferPosition);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(index, Count);
 
         int hashCode = GetHashCode(value);
 
-        EnsureCapacity(BufferPosition + 1);
-        Buffer[index..BufferPosition].CopyTo(Buffer[(index + 1)..]);
-        HashCodes[index..BufferPosition].CopyTo(HashCodes[(index + 1)..]);
+        EnsureCapacity(Count + 1);
+        Buffer[index..Count].CopyTo(Buffer[(index + 1)..]);
+        HashCodesBuffer[index..Count].CopyTo(HashCodesBuffer[(index + 1)..]);
         Buffer[index] = value;
-        HashCodes[index] = hashCode;
-        BufferPosition++;
+        HashCodesBuffer[index] = hashCode;
+        Count++;
     }
 
     /// <summary>
@@ -680,20 +662,20 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void RemoveAt(int index) {
         ArgumentOutOfRangeException.ThrowIfLessThan(index, 0);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, BufferPosition);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Count);
 
         Buffer[(index + 1)..].CopyTo(Buffer[index..]);
-        HashCodes[(index + 1)..].CopyTo(HashCodes[index..]);
+        HashCodesBuffer[(index + 1)..].CopyTo(HashCodesBuffer[index..]);
 
-        BufferPosition--;
-        Buffer[BufferPosition] = default!;
-        HashCodes[BufferPosition] = default!;
+        Count--;
+        Buffer[Count] = default!;
+        HashCodesBuffer[Count] = default!;
     }
 
     /// <summary>
     /// Enumerates the elements of a <see cref="ValueList{T}"/>.
     /// </summary>
-    public ref struct Enumerator : IEnumerator<T> {
+    public struct Enumerator : IEnumerator<T> {
         private readonly ValueHashSet<T> HashSet;
         private int Index;
 
@@ -734,7 +716,7 @@ public ref partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnlySet<T
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool MoveNext() {
             Index++;
-            return Index < HashSet.BufferPosition;
+            return Index < HashSet.Count;
         }
 
         /// <summary>
