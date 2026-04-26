@@ -66,10 +66,10 @@ internal readonly struct BackingBuffer<T> : IDisposable where T : struct, IDispo
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Dispose() => SharedBackingBuffer.Dispose();
+    public void Dispose() => SharedBackingBuffer.Recycle();
 }
 
-internal sealed class InnerBackingBuffer<T> : IDisposable where T : struct, IDisposable {
+internal sealed class InnerBackingBuffer<T> where T : struct, IDisposable {
     private bool Active { get; set; }
     private T _data;
     public ref T Data {
@@ -98,7 +98,7 @@ internal sealed class InnerBackingBuffer<T> : IDisposable where T : struct, IDis
         return self;
     }
 
-    public void Dispose() {
+    public void Recycle() {
         try {
             Data.Dispose();
         }
