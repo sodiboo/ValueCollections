@@ -493,60 +493,6 @@ public readonly partial struct ValueDictionary<TKey, TValue> : IDisposable, IDic
     }
 
     /// <summary>
-    /// Returns an enumerator that iterates over the elements of the dictionary.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public readonly Enumerator GetEnumerator() {
-        return new Enumerator(this);
-    }
-
-    /// <inheritdoc/>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() {
-        return ((IEnumerable<KeyValuePair<TKey, TValue>>)this.ToArray()).GetEnumerator();
-    }
-
-    /// <inheritdoc/>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    readonly IEnumerator IEnumerable.GetEnumerator() {
-        return this.ToArray().GetEnumerator();
-    }
-
-    /// <summary>
-    /// Returns a hash set of keys in the dictionary.
-    /// </summary>
-    public readonly ValueList<TKey> Keys {
-        get => Select(entry => entry.Key);
-    }
-
-    /// <inheritdoc/>
-    readonly ICollection<TKey> IDictionary<TKey, TValue>.Keys {
-        get => Keys.ToList();
-    }
-
-    /// <inheritdoc/>
-    readonly IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys {
-        get => Keys.ToList();
-    }
-
-    /// <summary>
-    /// Returns a hash set of keys in the dictionary.
-    /// </summary>
-    public readonly ValueList<TValue> Values {
-        get => Select(entry => entry.Value);
-    }
-
-    /// <inheritdoc/>
-    readonly ICollection<TValue> IDictionary<TKey, TValue>.Values {
-        get => Values.ToList();
-    }
-
-    /// <inheritdoc/>
-    readonly IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values {
-        get => Values.ToList();
-    }
-
-    /// <summary>
     /// Calculates a hash code for <paramref name="key"/> using <see cref="Comparer"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -618,58 +564,168 @@ public readonly partial struct ValueDictionary<TKey, TValue> : IDisposable, IDic
     }
 
     /// <summary>
-    /// Enumerates the entries of a <see cref="ValueList{T}"/>.
+    /// Returns an enumerator that iterates over the elements of the dictionary.
     /// </summary>
-    public ref struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>> {
-        private readonly ValueDictionary<TKey, TValue> Dictionary;
-        private int Index;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly Enumerator GetEnumerator() => new(this);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    readonly IEnumerator<KeyValuePair<TKey, TValue>> IEnumerable<KeyValuePair<TKey, TValue>>.GetEnumerator() => GetEnumerator();
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    readonly IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    /// <summary>
+    /// Enumerates the entries of a <see cref="ValueDictionary{TKey, TValue}"/>.
+    /// </summary>
+    public struct Enumerator(ValueDictionary<TKey, TValue> Dictionary) : IEnumerator<KeyValuePair<TKey, TValue>> {
+        private int Index = -1;
+        /// <inheritdoc />
+        public readonly KeyValuePair<TKey, TValue> Current => Dictionary.Span[Index];
+        /// <inheritdoc />
+        public bool MoveNext() => ++Index < Dictionary.Count;
+        /// <inheritdoc />
+        public void Reset() => Index = -1;
+
+        readonly object IEnumerator.Current => Current!;
+        readonly void IDisposable.Dispose() { }
+    }
+
+    /// <summary>
+    /// Returns a hash set of keys in the dictionary.
+    /// </summary>
+    public readonly KeyCollection Keys => new(this);
+
+    /// <inheritdoc/>
+    readonly ICollection<TKey> IDictionary<TKey, TValue>.Keys => Keys;
+
+    /// <inheritdoc/>
+    readonly IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
+
+    /// <summary>
+    /// Immutable view into the keys of a <see cref="ValueDictionary{TKey, TValue}"/>.
+    /// </summary>
+    public readonly struct KeyCollection(ValueDictionary<TKey, TValue> Dictionary) : ICollection<TKey>, IReadOnlyCollection<TKey> {
+        /// <inheritdoc />
+        public int Count => Dictionary.Count;
+
+        bool ICollection<TKey>.IsReadOnly => true;
+
+        static NotSupportedException MutationUnsupported() => new("Mutating a key collection derived from a dictionary is not allowed");
+
+        void ICollection<TKey>.Add(TKey item) => throw MutationUnsupported();
+        void ICollection<TKey>.Clear() => throw MutationUnsupported();
+        bool ICollection<TKey>.Remove(TKey item) => throw MutationUnsupported();
+
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        bool ICollection<TKey>.Contains(TKey item) => Dictionary.ContainsKey(item);
 
         /// <summary>
-        /// Constructs a new enumerator over the entries of <paramref name="dictionary"/>.
+        /// Copies every entry to <paramref name="destination"/>.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal Enumerator(ValueDictionary<TKey, TValue> dictionary) {
-            Dictionary = dictionary;
-            Index = -1;
+        public void CopyTo(scoped Span<TKey> destination) {
+            if (destination.Length < Dictionary.Count) {
+                throw new ArgumentException("destination span is not long enough to fit all the keys", nameof(destination));
+            }
+            foreach (var key in this) {
+                destination[0] = key;
+                destination = destination[1..];
+            }
         }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        void ICollection<TKey>.CopyTo(TKey[] destination, int startIndex) => CopyTo(destination.AsSpan(startIndex));
+
+        /// <inheritdoc cref="IEnumerable{TKey}.GetEnumerator" />
+        public Enumerator GetEnumerator() => new(Dictionary);
+        IEnumerator<TKey> IEnumerable<TKey>.GetEnumerator() => GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         /// <summary>
-        /// Returns the element at the current position of the dictionary.
+        /// Enumerates the keys of a <see cref="ValueDictionary{TKey, TValue}"/>.
         /// </summary>
-        public readonly KeyValuePair<TKey, TValue> Current {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => Dictionary.Buffer[Index];
-        }
+        public struct Enumerator(ValueDictionary<TKey, TValue> Dictionary) : IEnumerator<TKey> {
+            private int Index = -1;
+            /// <inheritdoc />
+            public readonly TKey Current => Dictionary.Span[Index].Key;
+            /// <inheritdoc />
+            public bool MoveNext() => ++Index < Dictionary.Count;
+            /// <inheritdoc />
+            public void Reset() => Index = -1;
 
-        /// <inheritdoc/>
-        readonly object? IEnumerator.Current {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => Current;
+            readonly object IEnumerator.Current => Current!;
+            readonly void IDisposable.Dispose() { }
         }
+    }
 
-        /// <inheritdoc/>
+    /// <summary>
+    /// Returns a hash set of keys in the dictionary.
+    /// </summary>
+    public readonly ValueCollection Values => new(this);
+
+    /// <inheritdoc/>
+    readonly ICollection<TValue> IDictionary<TKey, TValue>.Values => Values;
+
+    /// <inheritdoc/>
+    readonly IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
+
+    /// <summary>
+    /// Immutable view into the values of a <see cref="ValueDictionary{TKey, TValue}"/>.
+    /// </summary>
+    public readonly struct ValueCollection(ValueDictionary<TKey, TValue> Dictionary) : ICollection<TValue>, IReadOnlyCollection<TValue> {
+        /// <inheritdoc />
+        public int Count => Dictionary.Count;
+
+        bool ICollection<TValue>.IsReadOnly => true;
+
+        static NotSupportedException MutationUnsupported() => new("Mutating a value collection derived from a dictionary is not allowed");
+
+        void ICollection<TValue>.Add(TValue item) => throw MutationUnsupported();
+        void ICollection<TValue>.Clear() => throw MutationUnsupported();
+        bool ICollection<TValue>.Remove(TValue item) => throw MutationUnsupported();
+
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        readonly void IDisposable.Dispose() {
-        }
+        bool ICollection<TValue>.Contains(TValue item) => Dictionary.ContainsValue(item);
 
         /// <summary>
-        /// Advances the enumerator to the next element of the dictionary.
+        /// Copies every entry to <paramref name="destination"/>.
         /// </summary>
-        /// <returns>
-        /// <see langword="true"/> if the enumerator successfully advanced to the next element; <see langword="false"/> if the enumerator reached the end of the dictionary.
-        /// </returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool MoveNext() {
-            Index++;
-            return Index < Dictionary.Count;
+        public void CopyTo(scoped Span<TValue> destination) {
+            if (destination.Length < Dictionary.Count) {
+                throw new ArgumentException("destination span is not long enough to fit all the values", nameof(destination));
+            }
+            foreach (var value in this) {
+                destination[0] = value;
+                destination = destination[1..];
+            }
         }
 
-        /// <summary>
-        /// Sets the enumerator to its initial position, which is before the first element in the dictionary.
-        /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Reset() {
-            Index = -1;
+        void ICollection<TValue>.CopyTo(TValue[] destination, int startIndex) => CopyTo(destination.AsSpan(startIndex));
+
+        /// <inheritdoc cref="IEnumerable{TValue}.GetEnumerator" />
+        public Enumerator GetEnumerator() => new(Dictionary);
+        IEnumerator<TValue> IEnumerable<TValue>.GetEnumerator() => GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        /// <summary>
+        /// Enumerates the keys of a <see cref="ValueDictionary{TKey, TValue}"/>.
+        /// </summary>
+        public struct Enumerator(ValueDictionary<TKey, TValue> Dictionary) : IEnumerator<TValue> {
+            private int Index = -1;
+            /// <inheritdoc />
+            public readonly TValue Current => Dictionary.Span[Index].Value;
+            /// <inheritdoc />
+            public bool MoveNext() => ++Index < Dictionary.Count;
+            /// <inheritdoc />
+            public void Reset() => Index = -1;
+
+            readonly object IEnumerator.Current => Current!;
+            readonly void IDisposable.Dispose() { }
         }
     }
 }
