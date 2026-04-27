@@ -20,6 +20,12 @@ public readonly partial struct ValueHashSet<T> : IDisposable, ISet<T>, IReadOnly
     public ValueHashSet() { }
 
     /// <summary>
+    /// Whether these two ValueHashSets share the same backing buffer. That is, whether updates to `a` are reflected in `b`, and whether disposing `b` makes `a` unusable (and vice versa)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IdentityEquals(ValueHashSet<T> a, ValueHashSet<T> b) => BackingBuffer<InnerValueHashSet>.IdentityEquals(a.BackingBuffer, b.BackingBuffer);
+
+    /// <summary>
     /// Disposes the instance and returns the rented buffer to the array pool if needed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

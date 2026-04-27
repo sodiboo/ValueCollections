@@ -21,6 +21,12 @@ public readonly partial struct ValueDictionary<TKey, TValue> : IDisposable, IDic
     public ValueDictionary() { }
 
     /// <summary>
+    /// Whether these two ValueDictionaries share the same backing buffer. That is, whether updates to `a` are reflected in `b`, and whether disposing `b` makes `a` unusable (and vice versa)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IdentityEquals(ValueDictionary<TKey, TValue> a, ValueDictionary<TKey, TValue> b) => BackingBuffer<InnerValueDictionary>.IdentityEquals(a.BackingBuffer, b.BackingBuffer);
+
+    /// <summary>
     /// Disposes the instance and returns the rented buffers to the array pool if needed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -21,6 +21,12 @@ public readonly partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyLi
     public ValueList() { }
 
     /// <summary>
+    /// Whether these two ValueLists share the same backing buffer. That is, whether updates to `a` are reflected in `b`, and whether disposing `b` makes `a` unusable (and vice versa)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IdentityEquals(ValueList<T> a, ValueList<T> b) => BackingBuffer<InnerValueList>.IdentityEquals(a.BackingBuffer, b.BackingBuffer);
+
+    /// <summary>
     /// Disposes the instance and returns the rented buffer to the array pool if needed.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

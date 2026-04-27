@@ -67,6 +67,9 @@ internal readonly struct BackingBuffer<T> : IDisposable where T : struct, IDispo
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Dispose() => SharedBackingBuffer.Recycle();
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IdentityEquals(BackingBuffer<T> a, BackingBuffer<T> b) => a._BackingBuffer == b._BackingBuffer && a.Generation == b.Generation;
 }
 
 internal sealed class InnerBackingBuffer<T> where T : struct, IDisposable {
