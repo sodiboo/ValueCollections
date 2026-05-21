@@ -279,6 +279,19 @@ public readonly partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyLi
     }
 
     /// <summary>
+    /// Returns the index of the first value that matches the predicate, of -1 if not found.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int FindIndex(Predicate<T> match) {
+        for (int index = 0; index < Count; index++) {
+            if (match(Buffer[index])) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
     /// Returns the index of <paramref name="value"/> or -1 if not found.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -286,6 +299,19 @@ public readonly partial struct ValueList<T> : IDisposable, IList<T>, IReadOnlyLi
         EqualityComparer<T> comparer = EqualityComparer<T>.Default;
         for (int index = Count - 1; index >= 0; index--) {
             if (comparer.Equals(Buffer[index], value)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the last value that matches the predicate, of -1 if not found.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int FindLastIndex(Predicate<T> match) {
+        for (int index = Count - 1; index >= 0; index--) {
+            if (match(Buffer[index])) {
                 return index;
             }
         }
